@@ -1,0 +1,881 @@
+#########################################################################################
+## Project: Chicken Chilling
+## Name: Aeriel Belk
+## QIIME 2018.11
+#########################################################################################
+## Import paired-end sequences to qiime2
+qiime tools import \
+   --type EMPPairedEndSequences \
+   --input-path raw_data \
+   --output-path cc_sequences.qza
+
+## Demultiplex
+qiime demux emp-paired \
+  --m-barcodes-file 03_metadata/metadata.txt \
+  --m-barcodes-column BarcodeSequence \
+  --i-seqs 04_artifacts-and-visualizations/cc-sequences.qza \
+  --o-per-sample-sequences 04_artifacts-and-visualizations/cc-demux.qza
+
+qiime demux summarize \
+  --i-data 04_artifacts-and-visualizations/cc-demux.qza \
+  --o-visualization 04_artifacts-and-visualizations/cc-demux.qzv
+
+## DaDa2
+#Note - submitted as a script
+#Trim at 250 because last bp is low quality - note from core
+
+qiime dada2 denoise-paired \
+  --i-demultiplexed-seqs 04_artifacts-and-visualizations/cc-demux.qza \
+  --p-trunc-len-f 250 \
+  --p-trunc-len-r 250 \
+  --o-table cc-table.qza \
+  --o-representative-sequences cc-rep-seqs.qza \
+  --o-denoising-stats cc-denoising-stats.qza
+
+qiime feature-table summarize \
+  --i-table 04_artifacts-and-visualizations/cc-table.qza \
+  --o-visualization 04_artifacts-and-visualizations/cc-table.qzv \
+  --m-sample-metadata-file 03_metadata/metadata.txt
+
+qiime feature-table tabulate-seqs \
+  --i-data 04_artifacts-and-visualizations/cc-rep-seqs.qza \
+  --o-visualization 04_artifacts-and-visualizations/cc-rep-seqs.qzv
+
+#########################################################################################
+## Taxonomy
+#so I can filter out chloroplasts and mitochondria
+
+qiime feature-classifier classify-sklearn \
+  --i-classifier ../classifiers/silva-132-99-515-806-nb-classifier.qza \
+  --i-reads 04_artifacts-and-visualizations/cc-rep-seqs.qza \
+  --o-classification 07_taxonomy/cc-unfiltered-taxonomy.qza
+
+qiime metadata tabulate \
+  --m-input-file 07_taxonomy/cc-unfiltered-taxonomy.qza \
+  --o-visualization 07_taxonomy/cc-unfiltered-taxonomy.qzv
+  
+## Filter out mitochondria and chloroplasts
+qiime taxa filter-table \
+  --i-table 04_artifacts-and-visualizations/cc-table.qza \
+  --i-taxonomy 07_taxonomy/cc-unfiltered-taxonomy.qza \
+  --p-exclude mitochondria,chloroplast \
+  --o-filtered-table 04_artifacts-and-visualizations/cc-noChloMito-table.qza 
+
+qiime feature-table summarize \
+  --i-table 04_artifacts-and-visualizations/cc-noChloMito-table.qza \
+  --o-visualization 04_artifacts-and-visualizations/cc-noChloMito-table.qzv \
+  --m-sample-metadata-file 03_metadata/metadata.txt  
+  
+qiime taxa filter-seqs \
+  --i-sequences 04_artifacts-and-visualizations/cc-rep-seqs.qza \
+  --i-taxonomy 07_taxonomy/cc-unfiltered-taxonomy.qza \
+  --p-exclude mitochondria,chloroplast \
+  --o-filtered-sequences 04_artifacts-and-visualizations/cc-noChloMito-rep-seqs.qza 
+
+qiime feature-classifier classify-sklearn \
+  --i-classifier silva-132-99-515-806-nb-classifier.qza \
+  --i-reads 04_artifacts-and-visualizations/cc-noChloMito-rep-seqs.qza  \
+  --o-classification 07_taxonomy/cc-noChloMito-taxonomy.qza
+  
+qiime metadata tabulate \
+  --m-input-file 07_taxonomy/cc-noChloMito-taxonomy.qza \
+  --o-visualization 07_taxonomy/cc-noChloMito-taxonomy.qzv
+  
+qiime taxa barplot \
+  --i-table 04_artifacts-and-visualizations/cc-noChloMito-table.qza \
+  --i-taxonomy 07_taxonomy/cc-noChloMito-taxonomy.qza  \
+  --m-metadata-file 03_metadata/metadata2.txt \
+  --o-visualization 07_taxonomy/cc-noChloMito-taxa-bar-plots.qzv
+
+#########################################################################################
+## making relative abundance csv tables for comparing to zymo graph
+## level 7
+qiime taxa collapse \
+  --i-table 04_artifacts-and-visualizations/cc-noChloMito-table.qza \
+  --i-taxonomy 07_taxonomy/cc-noChloMito-taxonomy.qza \
+  --p-level 7 \
+  --o-collapsed-table 04_artifacts-and-visualizations/cc-noChloMito-species-table.qza
+
+#relative frequency
+
+qiime feature-table relative-frequency \
+--i-table 04_artifacts-and-visualizations/cc-noChloMito-species-table.qza \
+--o-relative-frequency-table 04_artifacts-and-visualizations/cc-noChloMito-species-relfreq.qza
+
+qiime tools export \
+--input-path 04_artifacts-and-visualizations/cc-noChloMito-species-relfreq.qza \
+--output-path 08_results/species_relfreq_table
+
+biom convert -i 08_results/species_relfreq_table/feature-table.biom -o 08_results/species_relfreq_table.tsv --to-tsv
+
+#then, open table, delete random line at top, transpose, save again
+#rename #OTU ID to sample
+
+## level 6
+qiime taxa collapse \
+  --i-table 04_artifacts-and-visualizations/cc-noChloMito-table.qza \
+  --i-taxonomy 07_taxonomy/cc-noChloMito-taxonomy.qza \
+  --p-level 6 \
+  --o-collapsed-table 04_artifacts-and-visualizations/cc-noChloMito-genus-table.qza
+
+#relative frequency
+qiime feature-table relative-frequency \
+--i-table 04_artifacts-and-visualizations/cc-noChloMito-genus-table.qza \
+--o-relative-frequency-table 04_artifacts-and-visualizations/cc-noChloMito-genus-relfreq.qza
+
+qiime tools export \
+--input-path 04_artifacts-and-visualizations/cc-noChloMito-genus-relfreq.qza \
+--output-path 08_results/genus_relfreq_table
+
+biom convert -i 08_results/genus_relfreq_table/feature-table.biom -o 08_results/genus_relfreq_table.tsv --to-tsv
+
+#then, open table, delete random line at top, transpose, save again
+#rename #OTU ID to sample
+
+## level 5
+qiime taxa collapse \
+  --i-table 04_artifacts-and-visualizations/cc-noChloMito-table.qza \
+  --i-taxonomy 07_taxonomy/cc-noChloMito-taxonomy.qza \
+  --p-level 5 \
+  --o-collapsed-table 04_artifacts-and-visualizations/cc-noChloMito-family-table.qza
+
+#relative frequency
+qiime feature-table relative-frequency \
+--i-table 04_artifacts-and-visualizations/cc-noChloMito-family-table.qza \
+--o-relative-frequency-table 04_artifacts-and-visualizations/cc-noChloMito-family-relfreq.qza
+
+qiime tools export \
+--input-path 04_artifacts-and-visualizations/cc-noChloMito-family-relfreq.qza \
+--output-path 08_results/family_relfreq_table
+
+biom convert -i 08_results/family_relfreq_table/feature-table.biom -o 08_results/family_relfreq_table.tsv --to-tsv
+
+#then, open table, delete random line at top, transpose, save again
+#rename #OTU ID to sample
+
+## level 4
+qiime taxa collapse \
+  --i-table 04_artifacts-and-visualizations/cc-noChloMito-table.qza \
+  --i-taxonomy 07_taxonomy/cc-noChloMito-taxonomy.qza \
+  --p-level 4 \
+  --o-collapsed-table 04_artifacts-and-visualizations/cc-noChloMito-order-table.qza
+
+#relative frequency
+qiime feature-table relative-frequency \
+--i-table 04_artifacts-and-visualizations/cc-noChloMito-order-table.qza \
+--o-relative-frequency-table 04_artifacts-and-visualizations/cc-noChloMito-order-relfreq.qza
+
+qiime tools export \
+--input-path 04_artifacts-and-visualizations/cc-noChloMito-order-relfreq.qza \
+--output-path 08_results/order_relfreq_table
+
+biom convert -i 08_results/order_relfreq_table/feature-table.biom -o 08_results/order_relfreq_table.tsv --to-tsv
+
+#then, open table, delete random line at top, transpose, save again
+#rename #OTU ID to sample
+
+## level 2 (for crystal)
+qiime taxa collapse \
+  --i-table 04_artifacts-and-visualizations/cc-noChloMito-table.qza \
+  --i-taxonomy 07_taxonomy/cc-noChloMito-taxonomy.qza \
+  --p-level 2 \
+  --o-collapsed-table 04_artifacts-and-visualizations/cc-noChloMito-phylum-table.qza
+
+#relative frequency
+qiime feature-table relative-frequency \
+--i-table 04_artifacts-and-visualizations/cc-noChloMito-phylum-table.qza \
+--o-relative-frequency-table 04_artifacts-and-visualizations/cc-noChloMito-phylum-relfreq.qza
+
+qiime tools export \
+--input-path 04_artifacts-and-visualizations/cc-noChloMito-phylum-relfreq.qza \
+--output-path 08_results/phylum_relfreq_table
+
+biom convert -i 08_results/phylum_relfreq_table/feature-table.biom -o 08_results/phylum_relfreq_table.tsv --to-tsv
+
+#then, open table, delete random line at top, transpose, save again
+#rename #OTU ID to sample
+
+#organize folder
+rm -r 08_results/family_relfreq_table, 08_results/genus_relfreq_table/, 08_results/order_relfreq_table/, 08_results/species_relfreq_table/ 
+
+mkdir rel-freq-tables
+mv *relfreq_table.tsv rel-freq-tables
+
+#########################################################################################
+## Generate a sepp tree
+qiime fragment-insertion sepp \
+  --i-representative-sequences 04_artifacts-and-visualizations/cc-noChloMito-rep-seqs.qza \
+  --p-threads 3 \
+  --output-dir 05_trees/sepp
+#note that in plugin guide it states that phylogeny is rooted
+  
+#quick reorganizing of the folder
+cd 05_trees/sepp/
+mv * ..
+cd ..
+rm -r sepp/
+mv placements.qza sepp-placements.qza
+mv tree.qza sepp-tree.qza
+
+## Core metrics
+#choosing rarefying: 6152 - retain 1,279,616 (37.18%) sequences in 208 samples
+
+qiime diversity core-metrics-phylogenetic \
+  --i-phylogeny 05_trees/sepp-tree.qza \
+  --i-table 04_artifacts-and-visualizations/cc-noChloMito-table.qza \
+  --p-sampling-depth 6152 \
+  --m-metadata-file 03_metadata/metadata.txt \
+  --output-dir 06_core-metrics/results-6152allsamples
+
+## Filter out the rinsate samples - I only want carcass and breast samples
+#metadata2 only contains the samples I want
+
+qiime feature-table filter-samples \
+  --i-table 04_artifacts-and-visualizations/cc-noChloMito-table.qza \
+  --m-metadata-file 03_metadata/metadata2.txt \
+  --o-filtered-table 04_artifacts-and-visualizations/cc-noChloMito-filtered-table.qza
+  
+qiime diversity core-metrics-phylogenetic \
+  --i-phylogeny 05_trees/sepp-tree.qza \
+  --i-table 04_artifacts-and-visualizations/all-data/cc-noChloMito-filtered-table.qza \
+  --p-sampling-depth 6152 \
+  --m-metadata-file 03_metadata/metadata-with-quality.txt \
+  --output-dir 06_core-metrics/results-6152-filtered
+
+
+## Tabulate diversities
+cd 06_core-metrics/results-6152-filtered
+
+qiime diversity alpha-group-significance \
+  --i-alpha-diversity faith_pd_vector.qza \
+  --m-metadata-file ../../03_metadata/metadata-with-quality.txt \
+  --o-visualization faith-pd-group-significance.qzv
+
+qiime diversity alpha-group-significance \
+  --i-alpha-diversity evenness_vector.qza \
+  --m-metadata-file ../../03_metadata/metadata-with-quality.txt \
+  --o-visualization evenness-group-significance.qzv
+
+qiime diversity alpha-group-significance \
+  --i-alpha-diversity shannon_vector.qza \
+  --m-metadata-file ../../03_metadata/metadata-with-quality.txt \
+  --o-visualization shannon-group-significance.qzv
+  
+qiime diversity alpha-group-significance \
+  --i-alpha-diversity observed_otus_vector.qza \
+  --m-metadata-file ../../03_metadata/metadata-with-quality.txt \
+  --o-visualization observed-otus-significance.qzv
+
+qiime diversity alpha-group-significance \
+  --i-alpha-diversity shannon_vector.qza \
+  --m-metadata-file ../../03_metadata/metadata-with-quality.txt \
+  --o-visualization shannon-group-significance.qzv
+
+qiime diversity beta-group-significance \
+  --i-distance-matrix unweighted_unifrac_distance_matrix.qza \
+  --m-metadata-file ../../03_metadata/metadata-with-quality.txt \
+  --m-metadata-column storage_days \
+  --o-visualization unweighted-unifrac-storage-days-significance.qzv \
+  --p-pairwise
+
+qiime diversity beta-group-significance \
+  --i-distance-matrix unweighted_unifrac_distance_matrix.qza \
+  --m-metadata-file ../../03_metadata/metadata-with-quality.txt \
+  --m-metadata-column chilling_method \
+  --o-visualization unweighted-unifrac-chilling-method-significance.qzv \
+  --p-pairwise
+
+qiime diversity beta-group-significance \
+  --i-distance-matrix weighted_unifrac_distance_matrix.qza \
+  --m-metadata-file ../../03_metadata/metadata-with-quality.txt \
+  --m-metadata-column storage_days \
+  --o-visualization weighted-unifrac-storage-days-significance.qzv \
+  --p-pairwise
+
+qiime diversity beta-group-significance \
+  --i-distance-matrix weighted_unifrac_distance_matrix.qza \
+  --m-metadata-file ../../03_metadata/metadata-with-quality.txt \
+  --m-metadata-column sampling_day \
+  --o-visualization weighted-unifrac-sampling_day-significance.qzv \
+  --p-pairwise
+
+qiime diversity beta-group-significance \
+  --i-distance-matrix weighted_unifrac_distance_matrix.qza \
+  --m-metadata-file ../../03_metadata/metadata-with-quality.txt \
+  --m-metadata-column chilling_method \
+  --o-visualization weighted-unifrac-chilling-method-significance.qzv \
+  --p-pairwise
+
+qiime diversity beta-group-significance \
+  --i-distance-matrix unweighted_unifrac_distance_matrix.qza \
+  --m-metadata-file ../../03_metadata/metadata2.txt \
+  --m-metadata-column bone \
+  --o-visualization unweighted-unifrac-bone-significance.qzv \
+  --p-pairwise
+
+qiime emperor plot \
+  --i-pcoa unweighted_unifrac_pcoa_results.qza \
+  --m-metadata-file ../../03_metadata/metadata2.txt \
+  --p-custom-axes storage_days \
+  --o-visualization unweighted-unifrac-emperor-storage.qzv
+
+#########################################################################################
+## QIIME 2019.1
+#########################################################################################
+## Cleanup
+mkdir 04_artifacts-and-visualizations/all-data
+mv 04_artifacts-and-visualizations/cc* all-data
+
+mkdir AC WC day0 day7 day14 display bone-in boneless
+
+## Filter by chilling method
+qiime feature-table filter-samples \
+  --i-table 04_artifacts-and-visualizations/all-data/cc-noChloMito-filtered-table.qza \
+  --m-metadata-file 03_metadata/metadata-with-quality.txt \
+  --p-where "chilling_method='AC'" \
+  --o-filtered-table 04_artifacts-and-visualizations/AC/AC_table.qza
+
+qiime feature-table summarize \
+  --i-table 04_artifacts-and-visualizations/AC/AC_table.qza \
+  --o-visualization 04_artifacts-and-visualizations/AC/AC_table.qzv \
+  --m-sample-metadata-file 03_metadata/metadata-with-quality.txt
+
+
+qiime feature-table filter-samples \
+  --i-table 04_artifacts-and-visualizations/all-data/cc-noChloMito-filtered-table.qza \
+  --m-metadata-file 03_metadata/metadata-with-quality.txt \
+  --p-where "chilling_method='WC'" \
+  --o-filtered-table 04_artifacts-and-visualizations/WC/WC_table.qza
+
+qiime feature-table summarize \
+  --i-table 04_artifacts-and-visualizations/WC/WC_table.qza \
+  --o-visualization 04_artifacts-and-visualizations/WC/WC_table.qzv \
+  --m-sample-metadata-file 03_metadata/metadata-with-quality.txt
+
+
+## Filter by storage period
+qiime feature-table filter-samples \
+  --i-table 04_artifacts-and-visualizations/all-data/cc-noChloMito-filtered-table.qza \
+  --m-metadata-file 03_metadata/metadata-with-quality.txt \
+  --p-where "storage_days='0'" \
+  --o-filtered-table 04_artifacts-and-visualizations/day0/day0_table.qza
+
+qiime feature-table summarize \
+  --i-table 04_artifacts-and-visualizations/day0/day0_table.qza \
+  --o-visualization 04_artifacts-and-visualizations/day0/day0_table.qzv \
+  --m-sample-metadata-file 03_metadata/metadata-with-quality.txt
+
+
+qiime feature-table filter-samples \
+  --i-table 04_artifacts-and-visualizations/all-data/cc-noChloMito-filtered-table.qza \
+  --m-metadata-file 03_metadata/metadata-with-quality.txt \
+  --p-where "storage_days='7'" \
+  --o-filtered-table 04_artifacts-and-visualizations/day7/day7_table.qza
+
+qiime feature-table summarize \
+  --i-table 04_artifacts-and-visualizations/day7/day7_table.qza \
+  --o-visualization 04_artifacts-and-visualizations/day7/day7_table.qzv \
+  --m-sample-metadata-file 03_metadata/metadata-with-quality.txt
+
+
+qiime feature-table filter-samples \
+  --i-table 04_artifacts-and-visualizations/all-data/cc-noChloMito-filtered-table.qza \
+  --m-metadata-file 03_metadata/metadata-with-quality.txt \
+  --p-where "storage_days='14'" \
+  --o-filtered-table 04_artifacts-and-visualizations/day14/day14_table.qza
+
+qiime feature-table summarize \
+  --i-table 04_artifacts-and-visualizations/day14/day14_table.qza \
+  --o-visualization 04_artifacts-and-visualizations/day14/day14_table.qzv \
+  --m-sample-metadata-file 03_metadata/metadata-with-quality.txt
+
+
+qiime feature-table filter-samples \
+  --i-table 04_artifacts-and-visualizations/all-data/cc-noChloMito-filtered-table.qza \
+  --m-metadata-file 03_metadata/metadata-with-quality.txt \
+  --p-where "storage_days='14'" \
+  --o-filtered-table 04_artifacts-and-visualizations/day14/day14_table.qza
+
+qiime feature-table summarize \
+  --i-table 04_artifacts-and-visualizations/day14/day14_table.qza \
+  --o-visualization 04_artifacts-and-visualizations/day14/day14_table.qzv \
+  --m-sample-metadata-file 03_metadata/metadata-with-quality.txt
+
+qiime feature-table filter-samples \
+  --i-table 04_artifacts-and-visualizations/all-data/cc-noChloMito-filtered-table.qza \
+  --m-metadata-file 03_metadata/metadata-with-quality.txt \
+  --p-where "sampling_day='7'" \
+  --o-filtered-table 04_artifacts-and-visualizations/sampday7_table.qza
+
+qiime feature-table summarize \
+  --i-table 04_artifacts-and-visualizations/sampday7_table.qza \
+  --o-visualization 04_artifacts-and-visualizations/sampday7_table.qzv \
+  --m-sample-metadata-file 03_metadata/metadata-with-quality.txt
+
+qiime feature-table filter-samples \
+  --i-table 04_artifacts-and-visualizations/all-data/cc-noChloMito-filtered-table.qza \
+  --m-metadata-file 03_metadata/metadata-with-quality.txt \
+  --p-where "sampling_day='10'" \
+  --o-filtered-table 04_artifacts-and-visualizations/sampday10_table.qza
+
+qiime feature-table summarize \
+  --i-table 04_artifacts-and-visualizations/sampday10_table.qza \
+  --o-visualization 04_artifacts-and-visualizations/sampday10_table.qzv \
+  --m-sample-metadata-file 03_metadata/metadata-with-quality.txt
+
+qiime feature-table filter-samples \
+  --i-table 04_artifacts-and-visualizations/all-data/cc-noChloMito-filtered-table.qza \
+  --m-metadata-file 03_metadata/metadata-with-quality.txt \
+  --p-where "sampling_day='14'" \
+  --o-filtered-table 04_artifacts-and-visualizations/sampday14_table.qza
+
+qiime feature-table summarize \
+  --i-table 04_artifacts-and-visualizations/sampday14_table.qza \
+  --o-visualization 04_artifacts-and-visualizations/sampday14_table.qzv \
+  --m-sample-metadata-file 03_metadata/metadata-with-quality.txt
+
+qiime feature-table filter-samples \
+  --i-table 04_artifacts-and-visualizations/all-data/cc-noChloMito-filtered-table.qza \
+  --m-metadata-file 03_metadata/metadata-with-quality.txt \
+  --p-where "sampling_day='17'" \
+  --o-filtered-table 04_artifacts-and-visualizations/sampday17_table.qza
+
+qiime feature-table summarize \
+  --i-table 04_artifacts-and-visualizations/sampday17_table.qza \
+  --o-visualization 04_artifacts-and-visualizations/sampday17_table.qzv \
+  --m-sample-metadata-file 03_metadata/metadata-with-quality.txt
+
+qiime feature-table filter-samples \
+  --i-table 04_artifacts-and-visualizations/all-data/cc-noChloMito-filtered-table.qza \
+  --m-metadata-file 03_metadata/metadata-with-quality.txt \
+  --p-where "display='y'" \
+  --o-filtered-table 04_artifacts-and-visualizations/display/display_table.qza
+
+qiime feature-table summarize \
+  --i-table 04_artifacts-and-visualizations/display/display_table.qza \
+  --o-visualization 04_artifacts-and-visualizations/display/display_table.qzv \
+  --m-sample-metadata-file 03_metadata/metadata-with-quality.txt
+
+## Filter by fabrication method
+qiime feature-table filter-samples \
+  --i-table 04_artifacts-and-visualizations/all-data/cc-noChloMito-filtered-table.qza \
+  --m-metadata-file 03_metadata/metadata-with-quality.txt \
+  --p-where "bone='BI'" \
+  --o-filtered-table 04_artifacts-and-visualizations/bone-in/bone-in_table.qza
+
+qiime feature-table summarize \
+  --i-table 04_artifacts-and-visualizations/bone-in/bone-in_table.qza \
+  --o-visualization 04_artifacts-and-visualizations/bone-in/bone-in_table.qzv \
+  --m-sample-metadata-file 03_metadata/metadata-with-quality.txt
+
+qiime feature-table filter-samples \
+  --i-table 04_artifacts-and-visualizations/all-data/cc-noChloMito-filtered-table.qza \
+  --m-metadata-file 03_metadata/metadata-with-quality.txt \
+  --p-where "bone='BL'" \
+  --o-filtered-table 04_artifacts-and-visualizations/boneless/boneless_table.qza
+
+qiime feature-table summarize \
+  --i-table 04_artifacts-and-visualizations/boneless/boneless_table.qza \
+  --o-visualization 04_artifacts-and-visualizations/boneless/boneless_table.qzv \
+  --m-sample-metadata-file 03_metadata/metadata-with-quality.txt
+
+## Diversity for subsets
+
+qiime diversity core-metrics-phylogenetic \
+  --i-table 04_artifacts-and-visualizations/AC/AC_table.qza \
+  --i-phylogeny 05_trees/sepp-tree.qza \
+  --m-metadata-file 03_metadata/metadata-with-quality.txt \
+  --p-sampling-depth 6152 \
+  --output-dir AC-core-metrics
+
+qiime diversity core-metrics-phylogenetic \
+  --i-table 04_artifacts-and-visualizations/WC/WC_table.qza \
+  --i-phylogeny 05_trees/sepp-tree.qza \
+  --m-metadata-file 03_metadata/metadata-with-quality.txt \
+  --p-sampling-depth 6152 \
+  --output-dir WC-core-metrics
+
+qiime diversity core-metrics-phylogenetic \
+  --i-table 04_artifacts-and-visualizations/day0/day0_table.qza \
+  --i-phylogeny 05_trees/sepp-tree.qza \
+  --m-metadata-file 03_metadata/metadata-with-quality.txt \
+  --p-sampling-depth 6152 \
+  --output-dir day0-core-metrics
+
+qiime diversity core-metrics-phylogenetic \
+  --i-table 04_artifacts-and-visualizations/day7/day7_table.qza \
+  --i-phylogeny 05_trees/sepp-tree.qza \
+  --m-metadata-file 03_metadata/metadata-with-quality.txt \
+  --p-sampling-depth 6152 \
+  --output-dir day7-core-metrics
+
+qiime diversity core-metrics-phylogenetic \
+  --i-table 04_artifacts-and-visualizations/day14/day14_table.qza \
+  --i-phylogeny 05_trees/sepp-tree.qza \
+  --m-metadata-file 03_metadata/metadata-with-quality.txt \
+  --p-sampling-depth 6152 \
+  --output-dir day14-core-metrics
+
+qiime diversity core-metrics-phylogenetic \
+  --i-table 04_artifacts-and-visualizations/display/display_table.qza \
+  --i-phylogeny 05_trees/sepp-tree.qza \
+  --m-metadata-file 03_metadata/metadata-with-quality.txt \
+  --p-sampling-depth 6152 \
+  --output-dir display-core-metrics
+
+qiime diversity core-metrics-phylogenetic \
+  --i-table 04_artifacts-and-visualizations/bone-in/bone-in_table.qza \
+  --i-phylogeny 05_trees/sepp-tree.qza \
+  --m-metadata-file 03_metadata/metadata-with-quality.txt \
+  --p-sampling-depth 6152 \
+  --output-dir bone-in-core-metrics
+
+qiime diversity core-metrics-phylogenetic \
+  --i-table 04_artifacts-and-visualizations/boneless/boneless_table.qza \
+  --i-phylogeny 05_trees/sepp-tree.qza \
+  --m-metadata-file 03_metadata/metadata-with-quality.txt \
+  --p-sampling-depth 6152 \
+  --output-dir boneless-core-metrics
+
+qiime diversity core-metrics-phylogenetic \
+  --i-table 04_artifacts-and-visualizations/sampday7_table.qza \
+  --i-phylogeny 05_trees/sepp-tree.qza \
+  --m-metadata-file 03_metadata/metadata-with-quality.txt \
+  --p-sampling-depth 6152 \
+  --output-dir sampday7-core-metrics
+  
+qiime diversity core-metrics-phylogenetic \
+  --i-table 04_artifacts-and-visualizations/sampday10_table.qza \
+  --i-phylogeny 05_trees/sepp-tree.qza \
+  --m-metadata-file 03_metadata/metadata-with-quality.txt \
+  --p-sampling-depth 6152 \
+  --output-dir sampday10-core-metrics
+
+qiime diversity core-metrics-phylogenetic \
+  --i-table 04_artifacts-and-visualizations/sampday14_table.qza \
+  --i-phylogeny 05_trees/sepp-tree.qza \
+  --m-metadata-file 03_metadata/metadata-with-quality.txt \
+  --p-sampling-depth 6152 \
+  --output-dir sampday14-core-metrics
+  
+qiime diversity core-metrics-phylogenetic \
+  --i-table 04_artifacts-and-visualizations/sampday17_table.qza \
+  --i-phylogeny 05_trees/sepp-tree.qza \
+  --m-metadata-file 03_metadata/metadata-with-quality.txt \
+  --p-sampling-depth 6152 \
+  --output-dir sampday17-core-metrics
+
+
+## exporting template
+qiime tools export \
+--input-path 04_artifacts-and-visualizations/cc-noChloMito-phylum-relfreq.qza \
+--output-path 08_results/phylum_relfreq_table
+
+biom convert -i 08_results/phylum_relfreq_table/feature-table.biom -o 08_results/phylum_relfreq_table.tsv --to-tsv
+
+
+### statistics for subsets
+qiime diversity alpha-group-significance \
+  --i-alpha-diversity 06_core-metrics/day0-core-metrics/shannon_vector.qza \
+  --m-metadata-file 03_metadata/metadata-with-quality.txt \
+  --o-visualization 06_core-metrics/day0-core-metrics/shannon-group-significance.qzv
+
+qiime diversity alpha-group-significance \
+  --i-alpha-diversity 06_core-metrics/day7-core-metrics/shannon_vector.qza \
+  --m-metadata-file 03_metadata/metadata-with-quality.txt \
+  --o-visualization 06_core-metrics/day7-core-metrics/shannon-group-significance.qzv
+
+qiime diversity alpha-group-significance \
+  --i-alpha-diversity 06_core-metrics/day14-core-metrics/shannon_vector.qza \
+  --m-metadata-file 03_metadata/metadata-with-quality.txt \
+  --o-visualization 06_core-metrics/day14-core-metrics/shannon-group-significance.qzv
+
+qiime diversity alpha-group-significance \
+  --i-alpha-diversity 06_core-metrics/day7-core-metrics/shannon_vector.qza \
+  --m-metadata-file 03_metadata/metadata-with-quality.txt \
+  --o-visualization 06_core-metrics/display-core-metrics/shannon-group-significance.qzv
+
+qiime diversity alpha-group-significance \
+  --i-alpha-diversity 06_core-metrics/AC-core-metrics/shannon_vector.qza \
+  --m-metadata-file 03_metadata/metadata-with-quality.txt \
+  --o-visualization 06_core-metrics/AC-core-metrics/shannon-group-significance.qzv
+
+qiime diversity alpha-group-significance \
+  --i-alpha-diversity 06_core-metrics/WC-core-metrics/shannon_vector.qza \
+  --m-metadata-file 03_metadata/metadata-with-quality.txt \
+  --o-visualization 06_core-metrics/WC-core-metrics/shannon-group-significance.qzv
+
+qiime diversity alpha-group-significance \
+  --i-alpha-diversity 06_core-metrics/bone-in-core-metrics/shannon_vector.qza \
+  --m-metadata-file 03_metadata/metadata-with-quality.txt \
+  --o-visualization 06_core-metrics/bone-in-core-metrics/shannon-group-significance.qzv
+
+qiime diversity alpha-group-significance \
+  --i-alpha-diversity 06_core-metrics/boneless-core-metrics/shannon_vector.qza \
+  --m-metadata-file 03_metadata/metadata-with-quality.txt \
+  --o-visualization 06_core-metrics/boneless-core-metrics/shannon-group-significance.qzv
+
+qiime diversity alpha-group-significance \
+  --i-alpha-diversity 06_core-metrics/sampday7-core-metrics/shannon_vector.qza \
+  --m-metadata-file 03_metadata/metadata-with-quality.txt \
+  --o-visualization 06_core-metrics/sampday7-core-metrics/shannon-group-significance.qzv
+  
+qiime diversity alpha-group-significance \
+  --i-alpha-diversity 06_core-metrics/sampday10-core-metrics/shannon_vector.qza \
+  --m-metadata-file 03_metadata/metadata-with-quality.txt \
+  --o-visualization 06_core-metrics/sampday10-core-metrics/shannon-group-significance.qzv
+
+qiime diversity alpha-group-significance \
+  --i-alpha-diversity 06_core-metrics/sampday14-core-metrics/shannon_vector.qza \
+  --m-metadata-file 03_metadata/metadata-with-quality.txt \
+  --o-visualization 06_core-metrics/sampday14-core-metrics/shannon-group-significance.qzv
+
+qiime diversity alpha-group-significance \
+  --i-alpha-diversity 06_core-metrics/sampday17-core-metrics/shannon_vector.qza \
+  --m-metadata-file 03_metadata/metadata-with-quality.txt \
+  --o-visualization 06_core-metrics/sampday17-core-metrics/shannon-group-significance.qzv
+
+qiime diversity beta-group-significance \
+  --i-distance-matrix unweighted_unifrac_distance_matrix.qza \
+  --m-metadata-file ../../03_metadata/metadata-with-quality.txt \
+  --m-metadata-column storage_days \
+  --o-visualization unweighted-unifrac-storage-days-significance.qzv \
+  --p-pairwise
+
+qiime diversity beta-group-significance \
+  --i-distance-matrix unweighted_unifrac_distance_matrix.qza \
+  --m-metadata-file ../../03_metadata/metadata-with-quality.txt \
+  --m-metadata-column chilling_method \
+  --o-visualization unweighted-unifrac-chilling-method-significance.qzv \
+  --p-pairwise
+
+qiime diversity beta-group-significance \
+  --i-distance-matrix weighted_unifrac_distance_matrix.qza \
+  --m-metadata-file ../../03_metadata/metadata-with-quality.txt \
+  --m-metadata-column storage_days \
+  --o-visualization weighted-unifrac-storage-days-significance.qzv \
+  --p-pairwise
+
+qiime diversity beta-group-significance \
+  --i-distance-matrix weighted_unifrac_distance_matrix.qza \
+  --m-metadata-file ../../03_metadata/metadata-with-quality.txt \
+  --m-metadata-column sampling_day \
+  --o-visualization weighted-unifrac-sampling_day-significance.qzv \
+  --p-pairwise
+
+#########################################################################################
+## Deicode
+
+qiime deicode rpca \
+  --i-table 04_artifacts-and-visualizations/all-data/cc-noChloMito-filtered-table.qza \
+  --p-min-feature-count 10 \
+  --p-min-sample-count 500 \
+  --o-biplot 04_artifacts-and-visualizations/all-data/deicode-ordination.qza \
+  --o-distance-matrix 04_artifacts-and-visualizations/all-data/deicode-distance.qza
+
+qiime emperor biplot \
+  --p-ignore-missing-samples \
+  --i-biplot 04_artifacts-and-visualizations/all-data/deicode-ordination.qza \
+  --m-sample-metadata-file 03_metadata/metadata-with-quality.txt \
+  --m-feature-metadata-file 07_taxonomy/cc-noChloMito-taxonomy.qza \
+  --o-visualization 04_artifacts-and-visualizations/all-data/deicode-biplot.qzv \
+  --p-number-of-features 6
+
+## Note the two important ASVs:
+#99e433a3ce4d5290445f668df2c9147e (ASV27) - AC
+#5648dccee530d68ceb3e4d7d22cf8756 (ASV10) - WC
+
+#############################################################################
+qiime sample-classifier classify-samples \
+  --i-table 04_artifacts-and-visualizations/all-data/cc-noChloMito-filtered-table.qza \
+  --m-metadata-file 03_metadata/metadata-with-quality.txt \
+  --m-metadata-column sampling_day \
+  --p-optimize-feature-selection \
+  --p-parameter-tuning \
+  --p-estimator RandomForestClassifier \
+  --p-n-estimators 20 \
+  --p-random-state 123 \
+  --output-dir sampling_day_classifier  
+
+qiime sample-classifier classify-samples \
+  --i-table 04_artifacts-and-visualizations/all-data/cc-noChloMito-filtered-table.qza \
+  --m-metadata-file 03_metadata/metadata-with-quality.txt \
+  --m-metadata-column chilling_method \
+  --p-optimize-feature-selection \
+  --p-parameter-tuning \
+  --p-estimator RandomForestClassifier \
+  --p-n-estimators 20 \
+  --p-random-state 123 \
+  --output-dir chilling_method_classifier  
+
+
+##########################################################################################
+### Interested in the different ASVs of Pseudomonas, psychrobacteria ###
+## David's group will construct phylogenetic tree
+
+# Filter out all ASV's representing pseudomonas
+qiime taxa filter-seqs \
+  --i-sequences 04_artifacts-and-visualizations/all-data/cc-noChloMito-rep-seqs.qza \
+  --i-taxonomy 07_taxonomy/cc-noChloMito-taxonomy.qza \
+  --p-include Pseudomonas \
+  --o-filtered-sequences 04_artifacts-and-visualizations/all-data/pseudomonas-rep-seqs.qza
+  
+qiime metadata tabulate \
+  --m-input-file 04_artifacts-and-visualizations/all-data/pseudomonas-rep-seqs.qza \
+  --o-visualization 04_artifacts-and-visualizations/all-data/pseudomonas-rep-seqs.qzv
+
+# Export as fasta file
+qiime tools export 04_artifacts-and-visualizations/all-data/pseudomonas-rep-seqs.qza  --output-dir for_david/pseudomonas
+
+qiime tools export \
+  --input-path 04_artifacts-and-visualizations/all-data/pseudomonas-rep-seqs.qza \
+  --output-path for_david/pseudomonas
+
+mv for_david/pseudomonas/dna-sequences.fasta for_david/pseudomonas-sequences.fasta
+rm -r for_david/pseudomonas
+
+# Filter out all ASV's representing Psychrobacter
+qiime taxa filter-seqs \
+  --i-sequences 04_artifacts-and-visualizations/all-data/cc-noChloMito-rep-seqs.qza \
+  --i-taxonomy 07_taxonomy/cc-noChloMito-taxonomy.qza \
+  --p-include Psychrobacter \
+  --o-filtered-sequences 04_artifacts-and-visualizations/all-data/psychrobacter-rep-seqs.qza
+  
+qiime metadata tabulate \
+  --m-input-file 04_artifacts-and-visualizations/all-data/psychrobacter-rep-seqs.qza \
+  --o-visualization 04_artifacts-and-visualizations/all-data/psychrobacter-rep-seqs.qzv
+
+# Export as fasta file
+qiime tools export \
+  --input-path 04_artifacts-and-visualizations/all-data/psychrobacter-rep-seqs.qza \
+  --output-path for_david/psychrobacter
+
+mv for_david/psychrobacter/dna-sequences.fasta for_david/psychrobacter-sequences.fasta
+rm -r for_david/psychrobacter
+
+### Filter table to only those with pseudomonas ###
+qiime taxa filter-table \
+  --i-table 04_artifacts-and-visualizations/all-data/cc-noChloMito-table.qza \
+  --i-taxonomy 07_taxonomy/cc-noChloMito-taxonomy.qza \
+  --p-include _pseudomonas \
+  --o-filtered-table 04_artifacts-and-visualizations/all-data/pseudomonas-feature-table.qza
+  
+qiime metadata tabulate \
+  --m-input-file 04_artifacts-and-visualizations/all-data/pseudomonas-feature-table.qza \
+  --o-visualization 04_artifacts-and-visualizations/all-data/pseudomonas-feature-table.qzv
+
+### ANCOM within day to see what caused AC v WC differences ###
+## Day 0/not stored
+qiime composition add-pseudocount \
+  --i-table 04_artifacts-and-visualizations/day0/day0_table.qza \
+  --o-composition-table 04_artifacts-and-visualizations/day0/day0_comp_table.qza
+qiime composition ancom \
+  --i-table 04_artifacts-and-visualizations/day0/day0_comp_table.qza \
+  --m-metadata-file 03_metadata/metadata-with-quality.txt \
+  --m-metadata-column chilling_method \
+  --o-visualization 04_artifacts-and-visualizations/day0/day0_ancom_method.qzv
+
+## Day 7
+qiime composition add-pseudocount \
+  --i-table 04_artifacts-and-visualizations/sampday7_table.qza \
+  --o-composition-table 04_artifacts-and-visualizations/day7_comp_table.qza
+qiime composition ancom \
+  --i-table 04_artifacts-and-visualizations/day7_comp_table.qza \
+  --m-metadata-file 03_metadata/metadata-with-quality.txt \
+  --m-metadata-column chilling_method \
+  --o-visualization 04_artifacts-and-visualizations/day7_ancom_method.qzv
+
+## Day 10
+qiime composition add-pseudocount \
+  --i-table 04_artifacts-and-visualizations/sampday10_table.qza \
+  --o-composition-table 04_artifacts-and-visualizations/day10_comp_table.qza
+qiime composition ancom \
+  --i-table 04_artifacts-and-visualizations/day10_comp_table.qza \
+  --m-metadata-file 03_metadata/metadata-with-quality.txt \
+  --m-metadata-column chilling_method \
+  --o-visualization 04_artifacts-and-visualizations/day10_ancom_method.qzv
+
+## Day 14
+qiime composition add-pseudocount \
+  --i-table 04_artifacts-and-visualizations/sampday14_table.qza \
+  --o-composition-table 04_artifacts-and-visualizations/day14_comp_table.qza
+qiime composition ancom \
+  --i-table 04_artifacts-and-visualizations/day14_comp_table.qza \
+  --m-metadata-file 03_metadata/metadata-with-quality.txt \
+  --m-metadata-column chilling_method \
+  --o-visualization 04_artifacts-and-visualizations/day14_ancom_method.qzv
+
+## Day 17
+qiime composition add-pseudocount \
+  --i-table 04_artifacts-and-visualizations/sampday17_table.qza \
+  --o-composition-table 04_artifacts-and-visualizations/day17_comp_table.qza
+qiime composition ancom \
+  --i-table 04_artifacts-and-visualizations/day17_comp_table.qza \
+  --m-metadata-file 03_metadata/metadata-with-quality.txt \
+  --m-metadata-column chilling_method \
+  --o-visualization 04_artifacts-and-visualizations/day17_ancom_method.qzv
+
+
+##### Export distance matrix
+qiime tools extract \
+  --input-path 06_core-metrics/results-6152-filtered-quality/unweighted_unifrac_distance_matrix.qza \
+  --output-path 06_core-metrics/results-6152-filtered-quality/unweighted_unifrac_extracted
+
+
+#### Trying to redo alpha group sig with the treatment_bone so I can get stats on interaction
+qiime diversity alpha-group-significance \
+  --i-alpha-diversity 06_core-metrics/results-6152-filtered-quality/shannon_vector.qza \
+  --m-metadata-file 03_metadata/metadata-with-quality.txt \
+  --o-visualization 06_core-metrics/results-6152-filtered-quality/shannon-group-significance-trt.qzv
+  
+## Predicting spoilage with microbiome
+## Psychrotroph counts
+qiime sample-classifier classify-samples \
+  --i-table 04_artifacts-and-visualizations/all-data/cc-noChloMito-table.qza \
+  --m-metadata-file 03_metadata/metadata-with-quality.txt \
+  --m-metadata-column micro_spoilage \
+  --p-optimize-feature-selection \
+  --p-parameter-tuning \
+  --p-estimator RandomForestClassifier \
+  --p-n-estimators 20 \
+  --p-random-state 123 \
+  --output-dir 09_ml/micro_spoilage_classifier \
+  --p-missing-samples ignore
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
